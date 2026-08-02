@@ -1,6 +1,8 @@
 FROM python:3.11-slim
 
-# Встановлюємо системні залежності для Chromium на Linux ARM64
+WORKDIR /app
+
+# Точний список системних бібліотек Chromium (виправлено librandr2 -> libxrandr2)
 RUN apt-get update && apt-get install -y --no-install-recommends \
     wget \
     curl \
@@ -21,21 +23,18 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     libxdamage1 \
     libxext6 \
     libxfixes3 \
-    librandr2 \
+    libxrandr2 \
     libgbm1 \
     libpango-1.0-0 \
     libcairo2 \
     libasound2 \
     && rm -rf /var/lib/apt/lists/*
 
-WORKDIR /app
-
 COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
-# Встановлюємо Playwright Chromium для ARM64
+# Завантаження самого бінарника Chromium (залежності вже встановлені вище)
 RUN playwright install chromium
-RUN playwright install-deps chromium
 
 COPY app/ ./app/
 
