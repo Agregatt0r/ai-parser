@@ -1,0 +1,38 @@
+version: '3.8'
+
+services:
+  ollama:
+    image: ollama/ollama:latest
+    container_name: ai_parser_ollama
+    restart: unless-stopped
+    ports:
+      - "127.0.0.1:11434:11434" # Порт Ollama відкритий тільки всередині контейнерної мережі сервера
+    volumes:
+      - ollama_data:/root/.ollama
+    environment:
+      - OLLAMA_NUM_PARALLEL=1
+      - OLLAMA_MAX_LOADED_MODELS=1
+    networks:
+      - parser_net
+
+  backend:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: ai_parser_backend
+    restart: unless-stopped
+    ports:
+      - "8000:8000"
+    env_file:
+      - .env
+    depends_on:
+      - ollama
+    networks:
+      - parser_net
+
+networks:
+  parser_net:
+    driver: bridge
+
+volumes:
+  ollama_data:
