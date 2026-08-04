@@ -1,11 +1,5 @@
 """
-AI-парсер: FastAPI застосунок, що приймає {url, task, output_format},
-проганяє сторінку через crawl4ai -> Ollama (Qwen2.5) -> форматований вивід.
-
-Запуск локально (без Docker, для швидкої розробки):
-    uvicorn app.main:app --reload --port 8000
-
-У продакшн-режимі застосунок піднімається через docker-compose (див. README.md).
+AI-парсер: FastAPI застосунок.
 """
 import logging
 import time
@@ -30,7 +24,7 @@ logger = logging.getLogger("ai_parser.main")
 
 limiter = Limiter(key_func=get_remote_address)
 
-app = FastAPI(title="AI Parser", version="1.0.0")
+app = FastAPI(title="AI Parser", version="2.0.0")
 app.state.limiter = limiter
 app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
 
@@ -45,19 +39,13 @@ app.add_middleware(
 
 @app.exception_handler(Exception)
 async def unhandled_exception_handler(request: Request, exc: Exception) -> JSONResponse:
-    """Ловить усе, що не є навмисним HTTPException - логуємо повний traceback на сервері,
-    а клієнту повертаємо загальне повідомлення (щоб не витікали внутрішні деталі)."""
     logger.exception("Необроблена помилка на %s", request.url.path)
     return JSONResponse(status_code=500, content={"success": False, "error": "Внутрішня помилка сервера"})
-
-
-OutputFormatLiteral = str
 
 
 class ParseRequest(BaseModel):
     url: str = Field(..., min_length=1, max_length=settings.max_url_length)
     task: str = Field(..., min_length=1, max_length=settings.max_task_length)
-    output_format: OutputFormatLiteral = Field(default="txt")
 
 
 class ParseMeta(BaseModel):
@@ -70,15 +58,12 @@ class ParseMeta(BaseModel):
 
 class ParseResponse(BaseModel):
     success: bool
-    output_format: str
+    output_format: str = "json"
     content: str
     filename: str
     mime_type: str
     warning: str | None = None
     meta: ParseMeta
-
-
-ALLOWED_FORMATS = {"json", "csv", "txt", "summary"}
 
 
 @app.get("/api/health", dependencies=[Depends(verify_api_key)])
@@ -90,27 +75,21 @@ async def health():
 @app.post("/api/parse", response_model=ParseResponse, dependencies=[Depends(verify_api_key)])
 @limiter.limit(settings.rate_limit)
 async def parse(request: Request, body: ParseRequest):
-    if body.output_format not in ALLOWED_FORMATS:
-        raise HTTPException(
-            status_code=400,
-            detail=f"Непідтримуваний output_format. Дозволені значення: {sorted(ALLOWED_FORMATS)}",
-        )
-
     safe_url = validate_public_url(body.url)
 
     started = time.monotonic()
 
     markdown = await fetch_clean_markdown(safe_url)
-    user_prompt, truncated = build_user_prompt(body.task, body.output_format, markdown)
-    raw_llm_output = await run_llm(user_prompt, body.output_format)
-    result = format_llm_output(raw_llm_output, body.output_format)
+    user_prompt, truncated = build_user_prompt(body.task, markdown)
+    raw_llm_output = await run_llm(user_prompt)
+    result = format_llm_output(raw_llm_output)
 
     elapsed = time.monotonic() - started
-    logger.info("parse OK url=%s format=%s elapsed=%.1fs", safe_url, body.output_format, elapsed)
+    logger.info("parse OK url=%s format=json elapsed=%.1fs", safe_url, elapsed)
 
     return ParseResponse(
         success=True,
-        output_format=body.output_format,
+        output_format="json",
         content=result.content,
         filename=result.filename,
         mime_type=result.mime_type,

@@ -16,13 +16,13 @@ import httpx
 from fastapi import HTTPException
 
 from app.config import settings
-from app.prompts import JSON_CONSTRAINED_FORMATS, SYSTEM_PROMPT
+from app.prompts import SYSTEM_PROMPT
 
 logger = logging.getLogger("ai_parser.llm")
 
 
-async def run_llm(user_prompt: str, output_format: str) -> str:
-    """Викликає Ollama /api/chat і повертає текст відповіді моделі."""
+async def run_llm(user_prompt: str) -> str:
+    """Викликає Ollama /api/chat і гарантовано повертає JSON-текст."""
     payload: dict = {
         "model": settings.ollama_model,
         "messages": [
@@ -30,14 +30,14 @@ async def run_llm(user_prompt: str, output_format: str) -> str:
             {"role": "user", "content": user_prompt},
         ],
         "stream": False,
+        "format": "json",       # Гарантує відповідь у форматі JSON на рівні Ollama runtime
+        "keep_alive": "1h",     # Тримати модель в RAM, щоб не завантажувати повторно
         "options": {
             "temperature": settings.ollama_temperature,
             "num_ctx": settings.ollama_num_ctx,
+            "num_thread": 4,    # Жорстко прив'язуємо під 4 ядра CPU
         },
     }
-
-    if output_format in JSON_CONSTRAINED_FORMATS:
-        payload["format"] = "json"
 
     url = f"{settings.ollama_base_url.rstrip('/')}/api/chat"
 
@@ -54,10 +54,7 @@ async def run_llm(user_prompt: str, output_format: str) -> str:
         logger.error("Тайм-аут запиту до Ollama: %s", exc)
         raise HTTPException(
             status_code=504,
-            detail=(
-                "LLM не встигла відповісти за відведений час. "
-                "Спробуйте меншу модель, менший num_ctx, або збільште ollama_request_timeout."
-            ),
+            detail="LLM не встигла відповісти за відведений час.",
         ) from exc
 
     if response.status_code != 200:
@@ -76,7 +73,6 @@ async def run_llm(user_prompt: str, output_format: str) -> str:
 
 
 async def check_ollama_health() -> dict:
-    """Використовується у /api/health: перевіряє, що Ollama живий і чи стягнута потрібна модель."""
     url = f"{settings.ollama_base_url.rstrip('/')}/api/tags"
     try:
         async with httpx.AsyncClient(timeout=5) as client:
@@ -88,5 +84,5 @@ async def check_ollama_health() -> dict:
             for m in models
         )
         return {"reachable": True, "model_ready": model_ready, "available_models": models}
-    except Exception as exc:  # noqa: BLE001 - health-check має бути максимально толерантним
+    except Exception as exc:
         return {"reachable": False, "model_ready": False, "error": str(exc)}
