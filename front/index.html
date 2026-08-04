@@ -1,0 +1,196 @@
+<!DOCTYPE html>
+<html lang="uk">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>AI Web Parser</title>
+    <style>
+        :root {
+            --bg: #0f172a;
+            --card: #1e293b;
+            --border: #334155;
+            --text: #f8fafc;
+            --muted: #94a3b8;
+            --primary: #3b82f6;
+            --primary-hover: #2563eb;
+            --danger: #ef4444;
+            --success: #10b981;
+        }
+        * { box-sizing: border-box; margin: 0; padding: 0; }
+        body { font-family: system-ui, -apple-system, sans-serif; background: var(--bg); color: var(--text); padding: 20px; line-height: 1.5; }
+        .container { max-width: 900px; margin: 0 auto; }
+        h1 { font-size: 1.5rem; margin-bottom: 20px; color: var(--text); text-align: center; }
+        .card { background: var(--card); border: 1px solid var(--border); border-radius: 8px; padding: 20px; margin-bottom: 20px; }
+        .grid { display: grid; grid-template-columns: 1fr 1fr; gap: 15px; }
+        @media (max-width: 600px) { .grid { grid-template-columns: 1fr; } }
+        .form-group { margin-bottom: 15px; }
+        label { display: block; font-size: 0.85rem; color: var(--muted); margin-bottom: 5px; font-weight: 600; }
+        input, select, textarea { width: 100%; background: #0f172a; border: 1px solid var(--border); color: var(--text); padding: 10px; border-radius: 6px; font-size: 0.95rem; }
+        textarea { resize: vertical; min-height: 100px; font-family: inherit; }
+        input:focus, select:focus, textarea:focus { outline: none; border-color: var(--primary); }
+        button { background: var(--primary); color: white; border: none; padding: 12px 20px; border-radius: 6px; font-weight: 600; cursor: pointer; width: 100%; font-size: 1rem; transition: background 0.2s; }
+        button:hover { background: var(--primary-hover); }
+        button:disabled { opacity: 0.5; cursor: not-allowed; }
+        .status { padding: 10px; border-radius: 6px; margin-bottom: 15px; display: none; font-size: 0.9rem; }
+        .status.error { background: rgba(239, 68, 68, 0.1); border: 1px solid var(--danger); color: var(--danger); display: block; }
+        .status.success { background: rgba(16, 185, 129, 0.1); border: 1px solid var(--success); color: var(--success); display: block; }
+        .status.info { background: rgba(59, 130, 246, 0.1); border: 1px solid var(--primary); color: var(--primary); display: block; }
+        .meta-info { font-size: 0.8rem; color: var(--muted); display: flex; gap: 15px; flex-wrap: wrap; margin-bottom: 10px; }
+        pre { background: #090d16; border: 1px solid var(--border); padding: 15px; border-radius: 6px; overflow-x: auto; font-family: monospace; font-size: 0.85rem; max-height: 400px; white-space: pre-wrap; word-break: break-word; }
+        .download-btn { background: var(--success); margin-top: 15px; }
+        .download-btn:hover { background: #059669; }
+    </style>
+</head>
+<body>
+
+<div class="container">
+    <h1>🤖 AI Parser Control Panel</h1>
+
+    <!-- Конфігурація підключення -->
+    <div class="card">
+        <div class="grid">
+            <div class="form-group">
+                <label for="serverUrl">URL сервера (з портом)</label>
+                <input type="text" id="serverUrl" placeholder="http://YOUR_ORACLE_IP:8000">
+            </div>
+            <div class="form-group">
+                <label for="apiKey">X-API-Key</label>
+                <input type="password" id="apiKey" placeholder="Введіть свій секретний ключ">
+            </div>
+        </div>
+    </div>
+
+    <!-- Форма запиту -->
+    <div class="card">
+        <form id="parseForm">
+            <div class="form-group">
+                <label for="url">URL сайту для парсингу</label>
+                <input type="url" id="url" required placeholder="https://example.com/products">
+            </div>
+
+            <div class="form-group">
+                <label for="task">Завдання (що витягнути та як підготувати)</label>
+                <textarea id="task" required placeholder="Витягни список продуктів із цінами та описом..."></textarea>
+            </div>
+
+            <div class="form-group">
+                <label for="format">Формат результату</label>
+                <select id="format">
+                    <option value="json">JSON</option>
+                    <option value="csv">CSV</option>
+                    <option value="txt">TXT (Звичайний текст)</option>
+                    <option value="summary">Summary (Коротке резюме)</option>
+                </select>
+            </div>
+
+            <button type="submit" id="submitBtn">Спарсити та Обробити</button>
+        </form>
+    </div>
+
+    <!-- Результати -->
+    <div id="statusBox" class="status"></div>
+
+    <div class="card" id="resultCard" style="display: none;">
+        <div class="meta-info" id="metaInfo"></div>
+        <pre id="outputContent"></pre>
+        <button id="downloadBtn" class="download-btn">Завантажити файл</button>
+    </div>
+</div>
+
+<script>
+    // Відновлення налаштувань з localStorage
+    document.getElementById('serverUrl').value = localStorage.getItem('parser_server_url') || '';
+    document.getElementById('apiKey').value = localStorage.getItem('parser_api_key') || '';
+
+    let currentResponseData = null;
+
+    function showStatus(message, type) {
+        const statusBox = document.getElementById('statusBox');
+        statusBox.className = `status ${type}`;
+        statusBox.innerText = message;
+    }
+
+    document.getElementById('parseForm').addEventListener('submit', async (e) => {
+        e.preventDefault();
+        
+        const serverUrl = document.getElementById('serverUrl').value.replace(/\/$/, "");
+        const apiKey = document.getElementById('apiKey').value;
+        const url = document.getElementById('url').value;
+        const task = document.getElementById('task').value;
+        const output_format = document.getElementById('format').value;
+        const submitBtn = document.getElementById('submitBtn');
+        const resultCard = document.getElementById('resultCard');
+
+        if (!serverUrl || !apiKey) {
+            showStatus('Будь ласка, вкажіть URL сервера та API Key.', 'error');
+            return;
+        }
+
+        // Збереження в localStorage
+        localStorage.setItem('parser_server_url', serverUrl);
+        localStorage.setItem('parser_api_key', apiKey);
+
+        submitBtn.disabled = true;
+        submitBtn.innerText = 'Завантаження та обробка LLM... (це може зайняти до 1 хвилини)';
+        showStatus('Запит надіслано. Очікуйте відповіді...', 'info');
+        resultCard.style.display = 'none';
+
+        try {
+            const response = await fetch(`${serverUrl}/api/parse`, {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                    'X-API-Key': apiKey
+                },
+                body: JSON.stringify({ url, task, output_format })
+            });
+
+            const data = await response.json();
+
+            if (!response.ok) {
+                throw new Error(data.detail || `Помилка сервера: ${response.status}`);
+            }
+
+            currentResponseData = data;
+
+            // Відображення результатів
+            document.getElementById('metaInfo').innerHTML = `
+                <span><b>Час:</b> ${data.meta.processing_time_seconds}s</span>
+                <span><b>Символів Markdown:</b> ${data.meta.markdown_chars}</span>
+                <span><b>Модель:</b> ${data.meta.model}</span>
+                ${data.meta.truncated ? '<span style="color: var(--danger)"><b>Контент було обрізано</b></span>' : ''}
+            `;
+
+            document.getElementById('outputContent').textContent = data.content;
+            resultCard.style.display = 'block';
+
+            if (data.warning) {
+                showStatus(`Увага: ${data.warning}`, 'error');
+            } else {
+                showStatus('Успішно оброблено!', 'success');
+            }
+
+        } catch (err) {
+            showStatus(`Помилка: ${err.message}`, 'error');
+        } finally {
+            submitBtn.disabled = false;
+            submitBtn.innerText = 'Спарсити та Обробити';
+        }
+    });
+
+    document.getElementById('downloadBtn').addEventListener('click', () => {
+        if (!currentResponseData) return;
+
+        const blob = new Blob([currentResponseData.content], { type: currentResponseData.mime_type });
+        const downloadUrl = window.URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = downloadUrl;
+        a.download = currentResponseData.filename;
+        document.body.appendChild(a);
+        a.click();
+        a.remove();
+        window.URL.revokeObjectURL(downloadUrl);
+    });
+</script>
+</body>
+</html>

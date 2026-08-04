@@ -81,7 +81,7 @@ class ParseResponse(BaseModel):
 ALLOWED_FORMATS = {"json", "csv", "txt", "summary"}
 
 
-@app.get("/api/health")
+@app.get("/api/health", dependencies=[Depends(verify_api_key)])
 async def health():
     ollama_status = await check_ollama_health()
     return {"status": "ok", "ollama": ollama_status}
