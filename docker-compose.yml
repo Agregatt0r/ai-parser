@@ -7,6 +7,7 @@ services:
     restart: unless-stopped
     ports:
       - "127.0.0.1:11434:11434" # Порт Ollama відкритий тільки всередині контейнерної мережі сервера
+      - "127.0.0.1:8000:8000"
     volumes:
       - ollama_data:/root/.ollama
     environment:
