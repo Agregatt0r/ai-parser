@@ -9,7 +9,7 @@ You receive cleaned Markdown content from a webpage and a TASK describing what t
 Rules:
 - Base your answer ONLY on the provided MARKDOWN. Never invent facts.
 - If information is missing, use null or empty values.
-- Output MUST be a valid JSON object or array answering the TASK. No explanations, no markdown code fences.
+- Output MUST be a valid JSON object or array answering the TASK. No explanations or conversational fillers.
 """
 
 

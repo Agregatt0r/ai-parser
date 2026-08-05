@@ -4,7 +4,7 @@ AI-парсер: FastAPI застосунок.
 import logging
 import time
 
-from fastapi import Depends, FastAPI, HTTPException, Request
+from fastapi import Depends, FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, Field
 from slowapi import Limiter, _rate_limit_exceeded_handler
@@ -15,7 +15,7 @@ from starlette.responses import JSONResponse
 from app.config import settings
 from app.crawler import fetch_clean_markdown
 from app.formatters import format_llm_output
-from app.llm import check_ollama_health, run_llm
+from app.llm import check_gemini_health, run_llm
 from app.prompts import build_user_prompt
 from app.security import validate_public_url, verify_api_key
 
@@ -24,7 +24,7 @@ logger = logging.getLogger("ai_parser.main")
 
 limiter = Limiter(key_func=get_remote_address)
 
-app = FastAPI(title="AI Parser", version="2.0.0")
+app = FastAPI(title="AI Parser", version="3.0.0")
 app.state.limiter = limiter
 app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
 
@@ -68,8 +68,8 @@ class ParseResponse(BaseModel):
 
 @app.get("/api/health", dependencies=[Depends(verify_api_key)])
 async def health():
-    ollama_status = await check_ollama_health()
-    return {"status": "ok", "ollama": ollama_status}
+    gemini_status = await check_gemini_health()
+    return {"status": "ok", "gemini": gemini_status}
 
 
 @app.post("/api/parse", response_model=ParseResponse, dependencies=[Depends(verify_api_key)])
@@ -96,7 +96,7 @@ async def parse(request: Request, body: ParseRequest):
         warning=result.warning,
         meta=ParseMeta(
             url=safe_url,
-            model=settings.ollama_model,
+            model=settings.gemini_model,
             markdown_chars=len(markdown),
             truncated=truncated,
             processing_time_seconds=round(elapsed, 2),

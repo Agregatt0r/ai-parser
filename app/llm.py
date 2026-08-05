@@ -1,18 +1,9 @@
 """
-Клієнт для звернення до Ollama.
-
-Ollama віддає власний простий REST API (/api/chat). Тут ми звертаємось до нього
-напряму через httpx, без офіційної ollama-python бібліотеки - на один ендпоінт
-вона не потрібна, а так менше залежностей у Docker-образі.
-
-Для output_format == "json" використовуємо вбудовану в Ollama можливість
-structured outputs (параметр "format": "json"), яка форсує синтаксично
-валідний JSON constrained-декодуванням на рівні runtime моделі - це суттєво
-надійніше за прохання "поверни JSON" у самому тексті промпту.
+Клієнт для звернення до Google Gemini API.
 """
 import logging
-
-import httpx
+from google import genai
+from google.genai import types
 from fastapi import HTTPException
 
 from app.config import settings
@@ -20,69 +11,45 @@ from app.prompts import SYSTEM_PROMPT
 
 logger = logging.getLogger("ai_parser.llm")
 
+# Ініціалізація Gemini клієнта
+ai_client = genai.Client(api_key=settings.gemini_api_key)
+
 
 async def run_llm(user_prompt: str) -> str:
-    """Викликає Ollama /api/chat і гарантовано повертає JSON-текст."""
-    payload: dict = {
-        "model": settings.ollama_model,
-        "messages": [
-            {"role": "system", "content": SYSTEM_PROMPT},
-            {"role": "user", "content": user_prompt},
-        ],
-        "stream": False,
-        "format": "json",       # Гарантує відповідь у форматі JSON на рівні Ollama runtime
-        "keep_alive": "1h",     # Тримати модель в RAM, щоб не завантажувати повторно
-        "options": {
-            "temperature": settings.ollama_temperature,
-            "num_ctx": settings.ollama_num_ctx,
-            "num_thread": 4,    # Жорстко прив'язуємо під 4 ядра CPU
-        },
-    }
-
-    url = f"{settings.ollama_base_url.rstrip('/')}/api/chat"
-
+    """Викликає Google Gemini API і повертає JSON-текст."""
     try:
-        async with httpx.AsyncClient(timeout=settings.ollama_request_timeout) as client:
-            response = await client.post(url, json=payload)
-    except httpx.ConnectError as exc:
-        logger.error("Не вдалося з'єднатись з Ollama на %s: %s", url, exc)
-        raise HTTPException(
-            status_code=503,
-            detail="LLM-сервіс (Ollama) недоступний. Перевірте, чи запущений контейнер ollama.",
-        ) from exc
-    except httpx.TimeoutException as exc:
-        logger.error("Тайм-аут запиту до Ollama: %s", exc)
-        raise HTTPException(
-            status_code=504,
-            detail="LLM не встигла відповісти за відведений час.",
-        ) from exc
+        # Асинхронний виклик Gemini
+        response = await ai_client.aio.models.generate_content(
+            model=settings.gemini_model,
+            contents=user_prompt,
+            config=types.GenerateContentConfig(
+                system_instruction=SYSTEM_PROMPT,
+                response_mime_type="application/json",  # Гарантує відповідь у суворому JSON
+                temperature=0.1,
+            ),
+        )
 
-    if response.status_code != 200:
-        logger.error("Ollama повернула помилку %s: %s", response.status_code, response.text[:500])
+        if not response.text:
+            raise HTTPException(status_code=502, detail="Gemini повернула порожню відповідь")
+
+        return response.text
+
+    except Exception as exc:
+        logger.error("Помилка під час запиту до Gemini API: %s", exc)
         raise HTTPException(
             status_code=502,
-            detail=f"Ollama повернула помилку {response.status_code}: {response.text[:300]}",
-        )
-
-    data = response.json()
-    content = data.get("message", {}).get("content", "")
-    if not content:
-        raise HTTPException(status_code=502, detail="Ollama повернула порожню відповідь")
-
-    return content
+            detail=f"Помилка при виконанні запиту до Gemini API: {str(exc)}",
+        ) from exc
 
 
-async def check_ollama_health() -> dict:
-    url = f"{settings.ollama_base_url.rstrip('/')}/api/tags"
+async def check_gemini_health() -> dict:
+    """Перевірка доступності Gemini API."""
     try:
-        async with httpx.AsyncClient(timeout=5) as client:
-            response = await client.get(url)
-        response.raise_for_status()
-        models = [m.get("name") for m in response.json().get("models", [])]
-        model_ready = any(
-            m == settings.ollama_model or (m and m.split(":")[0] == settings.ollama_model.split(":")[0])
-            for m in models
+        # Простий легкий тест
+        response = await ai_client.aio.models.generate_content(
+            model=settings.gemini_model,
+            contents="ping",
         )
-        return {"reachable": True, "model_ready": model_ready, "available_models": models}
+        return {"reachable": True, "status": "ok"}
     except Exception as exc:
-        return {"reachable": False, "model_ready": False, "error": str(exc)}
+        return {"reachable": False, "error": str(exc)}
