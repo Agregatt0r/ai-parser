@@ -2,7 +2,7 @@ FROM python:3.11-slim
 
 WORKDIR /app
 
-# Точний список системних бібліотек Chromium (виправлено librandr2 -> libxrandr2)
+# Chromium system libraries (libxrandr2, not the obsolete librandr2 name)
 RUN apt-get update && apt-get install -y --no-install-recommends \
     wget \
     curl \
@@ -33,7 +33,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
-# Завантаження самого бінарника Chromium (залежності вже встановлені вище)
+# Download the Chromium binary (system deps already installed above)
 RUN playwright install chromium
 
 COPY app/ ./app/

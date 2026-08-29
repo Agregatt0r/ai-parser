@@ -1,22 +1,23 @@
 """
-Захисні механізми застосунку.
+Application security helpers.
 
-1. verify_api_key   - перевірка секретного заголовка X-API-Key на кожен виклик /api/parse.
-2. validate_public_url - захист від SSRF: URL, який просить обробити користувач,
-   не повинен резолвитись у приватну/локальну/link-local адресу. Це блокує, зокрема,
-   спроби (навмисні чи через редирект на скомпрометованому сайті) достукатись до
-   169.254.169.254 - metadata endpoint хмарних провайдерів (Oracle Cloud, AWS, GCP тощо),
-   де можуть лежати облікові дані інстансу.
+1. `verify_api_key` — require a secret `X-API-Key` header on every API call.
+2. `validate_public_url` — SSRF guard: the URL the user asks to fetch must not
+   resolve to a private, loopback, or link-local address. That blocks attempts
+   (intentional or via a compromised redirect) to hit 169.254.169.254, the
+   cloud metadata endpoint (Oracle Cloud, AWS, GCP, and others) where instance
+   credentials can live.
 
-ВАЖЛИВО (чесно про межі захисту): перевірка нижче резолвить DNS ОДИН РАЗ, до того як
-crawl4ai/Playwright самі підуть по мережі. Це закриває пряме звернення на приватні IP
-та найпростіші випадки, але теоретично не захищає на 100% від:
-  - DNS rebinding (домен віддає публічну IP під час перевірки, а потім - приватну),
-  - SSRF через ланцюжок HTTP-редиректів на самому сайті.
-Для персонального інструменту, яким керуєте лише ви, це прийнятний рівень ризику.
-Якщо захочете закрити і ці вектори - додайте фільтрацію на рівні мережі/iptables
-для контейнера backend (блокувати вихідний трафік на 169.254.169.254 та RFC1918
-діапазони), це вже не обійти на рівні застосунку.
+Honest limits: DNS is resolved once *before* Crawl4AI / Playwright go online.
+That blocks direct private IPs and the simple cases, but it is not a 100%
+guarantee against:
+  - DNS rebinding (public IP during the check, private IP later),
+  - SSRF via a chain of HTTP redirects on the target site.
+
+For a personal tool you control, this is a reasonable risk level. To close
+those remaining vectors, filter at the network / iptables layer for the
+backend container (block outbound traffic to 169.254.169.254 and RFC1918
+ranges). That cannot be fully enforced in application code alone.
 """
 import ipaddress
 import secrets
@@ -29,12 +30,14 @@ from app.config import settings
 
 
 async def verify_api_key(x_api_key: str = Header(default="")) -> None:
-    """FastAPI-залежність: кидає 401, якщо заголовок X-API-Key відсутній або невірний.
-    Порівняння через secrets.compare_digest - захист від timing-атак."""
+    """FastAPI dependency: 401 if `X-API-Key` is missing or wrong.
+
+    Comparison uses `secrets.compare_digest` to reduce timing-attack risk.
+    """
     if not x_api_key or not secrets.compare_digest(x_api_key, settings.api_key):
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Недійсний або відсутній API-ключ (заголовок X-API-Key)",
+            detail="Invalid or missing API key (X-API-Key header)",
         )
 
 
@@ -49,29 +52,29 @@ _FORBIDDEN_REASONS = (
 
 
 def validate_public_url(url: str) -> str:
-    """Повертає url, якщо він публічний та безпечний. Інакше кидає HTTPException(400)."""
+    """Return `url` if it is public and safe. Otherwise raise HTTPException(400)."""
     if len(url) > settings.max_url_length:
-        raise HTTPException(status_code=400, detail="URL занадто довгий")
+        raise HTTPException(status_code=400, detail="URL is too long")
 
     try:
         parsed = urlparse(url)
     except Exception:
-        raise HTTPException(status_code=400, detail="Некоректний URL")
+        raise HTTPException(status_code=400, detail="Invalid URL")
 
     if parsed.scheme not in ("http", "https"):
-        raise HTTPException(status_code=400, detail="Дозволені лише URL зі схемою http:// або https://")
+        raise HTTPException(status_code=400, detail="Only http:// and https:// URLs are allowed")
 
     hostname = parsed.hostname
     if not hostname:
-        raise HTTPException(status_code=400, detail="У URL відсутній хост")
+        raise HTTPException(status_code=400, detail="URL is missing a host")
 
     try:
         infos = socket.getaddrinfo(hostname, None)
     except socket.gaierror:
-        raise HTTPException(status_code=400, detail=f"Не вдалося резолвити хост: {hostname}")
+        raise HTTPException(status_code=400, detail=f"Could not resolve host: {hostname}")
 
     if not infos:
-        raise HTTPException(status_code=400, detail=f"Хост не резолвиться в жодну адресу: {hostname}")
+        raise HTTPException(status_code=400, detail=f"Host does not resolve to any address: {hostname}")
 
     for info in infos:
         ip_str = info[4][0]
@@ -83,8 +86,8 @@ def validate_public_url(url: str) -> str:
             raise HTTPException(
                 status_code=400,
                 detail=(
-                    f"URL резолвиться у заборонену (приватну/локальну) адресу ({ip_str}). "
-                    "Це обмеження існує для захисту від SSRF-атак."
+                    f"URL resolves to a forbidden (private/local) address ({ip_str}). "
+                    "This restriction exists to protect against SSRF attacks."
                 ),
             )
 

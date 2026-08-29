@@ -1,6 +1,4 @@
-"""
-Валідація та форматування результату у валідний JSON.
-"""
+"""Validate and pretty-print the model output as JSON."""
 import json
 import re
 from dataclasses import dataclass
@@ -42,5 +40,5 @@ def format_llm_output(raw: str) -> FormattedResult:
             filename=filename,
             mime_type=mime_type,
             is_valid=False,
-            warning=f"Модель повернула невалідний JSON ({exc}). Показано сирий текст.",
+            warning=f"The model returned invalid JSON ({exc}). Showing raw text.",
         )

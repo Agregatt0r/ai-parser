@@ -1,6 +1,4 @@
-"""
-AI-парсер: FastAPI застосунок.
-"""
+"""FastAPI application: crawl a public page, extract structured JSON with Gemini."""
 import logging
 import time
 
@@ -24,7 +22,14 @@ logger = logging.getLogger("ai_parser.main")
 
 limiter = Limiter(key_func=get_remote_address)
 
-app = FastAPI(title="AI Parser", version="3.0.0")
+app = FastAPI(
+    title="AI Parser",
+    version="3.0.0",
+    description=(
+        "Fetch a public URL with a headless browser, strip noise into clean Markdown, "
+        "then extract structured JSON with Google Gemini based on your task."
+    ),
+)
 app.state.limiter = limiter
 app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
 
@@ -39,8 +44,8 @@ app.add_middleware(
 
 @app.exception_handler(Exception)
 async def unhandled_exception_handler(request: Request, exc: Exception) -> JSONResponse:
-    logger.exception("Необроблена помилка на %s", request.url.path)
-    return JSONResponse(status_code=500, content={"success": False, "error": "Внутрішня помилка сервера"})
+    logger.exception("Unhandled error on %s", request.url.path)
+    return JSONResponse(status_code=500, content={"success": False, "error": "Internal server error"})
 
 
 class ParseRequest(BaseModel):

@@ -1,3 +1,4 @@
+# Binds to localhost only. Put real keys in `.env` (see `.env.example`).
 services:
   backend:
     build:

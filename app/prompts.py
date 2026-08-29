@@ -1,6 +1,4 @@
-"""
-Побудова промпту для обов'язкового JSON-виводу.
-"""
+"""Build the user prompt that forces JSON output from the model."""
 from app.config import settings
 
 SYSTEM_PROMPT = """You are a precise data extraction assistant.
